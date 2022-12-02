@@ -1,0 +1,267 @@
+---
+title: "ADA Final Project"
+author: "Aung Myo Htut"
+date: "2022-12-02"
+output: html_document
+---
+
+```{r}
+pacman::p_load(tidyverse, haven, ggplot2, car,table1, broom, lmtest, sjPlot,
+               sjmisc, sjlabelled, stargazer,  writeexl)
+```
+
+#Import Dataset
+```{r}
+brfss <- read_xpt("LLCP2018.XPT") %>% select(`_AGE_G`,SEX1,`_IMPRACE`,`INCOME2`,`_EDUCAG`,`_TOTINDA`,EMPLOY1,
+      `_BMI5CAT`,SLEPTIM1,DIABETE3)
+```
+
+#Rename Variables
+```{r}
+names(brfss) <- c("Age","Sex","Race/ethnicity","Income","Education Level",
+                  "Physical Activity","Employment", "BMI",
+                  "Sleep Duration", "Diabetes")
+```
+
+#DropNA
+```{r}
+dim(brfss)
+colSums(is.na(brfss))
+brfss18 <- brfss %>% drop_na()
+colnames(brfss18)
+write.csv(brfss18, "brfss18.csv", col.names = TRUE, row.names = FALSE, quote = FALSE)
+
+data <- read_csv("brfss18.csv", show_col_types = FALSE)
+dim(data)
+```
+
+
+#Recoding and factoring
+```{r, warning=FALSE}
+brfss <- read_csv("brfss18.csv", show_col_types = FALSE) %>%
+  mutate(Age = factor(Age, levels = 1:6,
+                      labels = c("18-24","25-34","35-44","45-54","55-64",">=65")),
+         Sex = case_when(Sex==1 ~ 1,
+                         Sex==2 ~ 2,
+                         TRUE ~ NA_real_),
+         Sex = factor(Sex, levels = 1:2,
+                      labels = c("Male", "Female")),
+         `Race/ethnicity`= case_when(`Race/ethnicity`==1 ~ "NH White",
+                                     `Race/ethnicity`==2 ~ "NH Black",
+                                     `Race/ethnicity`==3 ~ "NH Asian",
+                                     `Race/ethnicity`==4 ~ "NH AI/AN",
+                                     `Race/ethnicity`==5 ~ "Hispanic",
+                                     `Race/ethnicity`==6 ~ "Other"),
+                                     
+         Income = case_when(Income%in% c(1,2,3,4) ~1,
+                            Income%in%c(5,6) ~2,
+                            Income==7 ~ 3,
+                            Income==8 ~ 4,
+                            TRUE ~ NA_real_),
+         Income = factor(Income, levels = 1:4,
+                         labels = c("<25k", "25k-<50k", "50k-<75k",">=75k")),
+         `Education Level` = case_when(`Education Level`== 1 ~ 1,
+                               `Education Level`== 2 ~ 2,
+                               `Education Level`== 3 ~ 3,
+                               `Education Level`== 4 ~ 4,
+                               TRUE ~ NA_real_),
+         `Education Level` = factor(`Education Level`, levels = 1:4,
+                            labels = c("Did not graduate High School", "Graduated High School",
+                                              "Attended College", "Graduated from College")),
+         `Physical Activity` = case_when(`Physical Activity`==1 ~ "Yes",
+                                         `Physical Activity`==2 ~ "No",
+                                         TRUE ~ NA_character_),
+         Employment = case_when(Employment%in%c(1,2) ~ 1,
+                                Employment%in%c(3,4) ~ 2,
+                                Employment%in%c(5,6) ~ 3,
+                                Employment==7 ~ 4,
+                                Employment==8 ~5,
+                                TRUE ~ NA_real_),
+         Employment = factor(Employment, levels = 1:5,
+                             labels = c("Employed", "Unemployed", "Homemaker/student",
+                                        "Retired", "Unable to work")),
+         
+         BMI = case_when(BMI==1 ~ "Underweight",
+                         BMI==2 ~ "Normal Weight",
+                         BMI==3 ~ "Overweight",
+                         BMI==4 ~ "Obese",
+                         TRUE ~ NA_character_),
+         `Sleep Duration`= case_when(`Sleep Duration` >=7 & `Sleep Duration`<=9 ~ 1,
+                                     `Sleep Duration` <7 ~ 2,
+                                     `Sleep Duration` >9 & `Sleep Duration`<= 24 ~ 3,
+                                     TRUE ~ NA_real_),
+         `Sleep Duration`= factor(`Sleep Duration`,levels = 1:3,
+                                  labels = c("Normal sleep", "Short sleep", 
+                                             "Long sleep")),
+         Diabetes = if_else(Diabetes%in%c(3,4),0,
+                            if_else(Diabetes%in%c(1,2),1,NA_real_)),
+         Diabetes = factor(Diabetes, levels = 0:1,
+                           labels = c("No", "Yes")))
+head(brfss)
+dim(brfss)
+```
+
+#Find Missing Values
+```{r}
+colSums(is.na(brfss))
+```
+
+#Drop NA Values
+```{r}
+brfss18 <- brfss %>% drop_na()
+colSums(is.na(brfss18))
+dim(brfss18)
+#Percentage of data excluded
+100 - nrow(brfss18)/nrow(brfss)*100
+
+```
+
+#Descriptive Statistics - Table 1
+```{r}
+desc <- table1(~., data = brfss18)
+desc
+
+desc1 <- table1 (~ Age + `Race/ethnicity`+ Income + `Education Level`+ 
+                   `Physical Activity`+ Employment + BMI + `Sleep Duration`+
+                   Diabetes | Sex, data = brfss18)
+desc1
+
+desc2 <- table1 (~ Age + Sex +`Race/ethnicity`+ Income + `Education Level`+ 
+                   `Physical Activity`+ Employment + BMI + 
+                   Diabetes | `Sleep Duration`, data = brfss18)
+desc2
+
+#write.xlsx(desc, "table1.xlsx")
+```
+
+
+#Unadjusted Model
+```{r}
+model1 <- glm(Diabetes~`Sleep Duration`, data = brfss18, family = "binomial")
+summary(model1)
+tidy(model1, exponentiate = TRUE, conf.int = TRUE) 
+```
+
+
+#Adjusted model
+```{r}
+model2 <- glm (Diabetes ~ `Sleep Duration`+ Age + Sex + `Race/ethnicity`+ Income+
+              `Education Level`+ `Physical Activity`+ Employment + BMI, 
+              data = brfss18, 
+              family = binomial(link = "logit"))
+summary(model2)
+broom::tidy(model2, exponentiate = TRUE, conf.int = TRUE)
+
+```
+
+
+#Model Assumptions of adjusted model
+```{r, Assessing Multicolinearity}
+
+#Assessing Multicolinearity
+car::vif(model2)
+
+#jtools::summ(model2, vifs = TRUE)
+```
+
+No mulitcolinearity between variables as VIF value is less than 10 for all variables.
+
+#Assessing Cook's Distance
+```{r}
+#Find influential points
+plot(model2, which = 4, id.n = 3, col="red")
+```
+Getting Cook's D Calculations for each observation using augment function from Broom package
+```{r}
+model2.data <- augment(model2) %>%  
+  mutate(index = 1:n()) 
+
+head(model2.data)
+```
+
+#Identify and exclude observations with a Cook's Distance greater than a cutoff, use 3 x the mean Cook's D 
+```{r}
+cuttoff <- mean(model2.data$.cooksd)*3 # defines cutoff variable
+
+brfss_out <- model2.data %>% # excludes observations
+  filter(.cooksd<cuttoff)
+
+nrow(brfss_out)/nrow(brfss18) # check percent kept
+```
+
+#Fit a model with observations excluded
+```{r}
+cookmodel <- glm (Diabetes ~ `Sleep Duration`+ Age + Sex + `Race/ethnicity`+ Income+
+              `Education Level`+ `Physical Activity`+ Employment + BMI, 
+              data = brfss_out, 
+              family = binomial(link = "logit"))
+summary(cookmodel)
+```
+
+Some of the variables in the model becomes not significant after excluding influential observations.
+
+#Compare coefficients between models with and without influential observations
+```{r}
+compareCoefs(model2, cookmodel)
+```
+
+The stand errors are larger in cook model than model 2. That's why I will not exclude influential observations and will proceed with the original data.
+
+
+
+
+#model for effect modification
+```{r}
+model3 <- glm (Diabetes ~ `Sleep Duration`+ Age + Sex + `Race/ethnicity`+ Income+
+              `Education Level`+ `Physical Activity`+ Employment + BMI + 
+              `Sleep Duration`*Sex , data = brfss18, 
+               family = binomial(link = "logit"))
+summary(model3)
+
+#test effect modification with LRT
+lrtest(model2, model3)
+```
+
+
+#95% CI for effect modification model
+```{r}
+broom::tidy(model3, exponentiate = TRUE, conf.int = TRUE) %>% select (-statistic)
+```
+
+#Male Only Model
+```{r}
+malemodel <- glm (Diabetes ~ `Sleep Duration`+ Age + `Race/ethnicity`+ Income+
+                 `Education Level`+ `Physical Activity`+ Employment + BMI, 
+                 data = brfss18, 
+                 family = binomial(link = "logit"), 
+                 subset = Sex== "Male")
+summary(malemodel)
+```
+
+#95% CI for male only model
+```{r}
+broom::tidy(malemodel, exponentiate = TRUE, conf.int = TRUE) %>% select (-statistic)
+```
+
+#Female Only Model
+```{r}
+femalemodel <- glm (Diabetes ~ `Sleep Duration`+ Age + `Race/ethnicity`+ Income+
+                 `Education Level`+ `Physical Activity`+ Employment + BMI, 
+                 data = brfss18, 
+                 family = binomial(link = "logit"),
+                 subset = Sex== "Female")
+summary(femalemodel)
+```
+
+#95% CI for female only model
+```{r}
+broom::tidy(femalemodel, exponentiate = TRUE, conf.int = TRUE) %>% select (-statistic)
+```
+
+#Combining regression results
+```{r}
+tab_model(model3, malemodel,femalemodel, show.ci = 0.95, p.val = "wald",
+          p.style = "stars", show.p = TRUE, 
+          dv.labels = c("Model 1", "Model 2", "Model 3"),
+          show.reflvl = FALSE, show.stat = FALSE)
+```
